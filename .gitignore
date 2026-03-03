@@ -1,0 +1,8 @@
+/bin/
+/dist/
+*.log
+*.out
+*.test
+coverage.txt
+.env
+tmp_notifications.log
