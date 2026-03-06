@@ -1,6 +1,10 @@
 package gotification
 
-import "context"
+import (
+	"context"
+
+	"github.com/TheKrainBow/gotification/slackmsg"
+)
 
 // Channel identifies a notification transport.
 type Channel string
@@ -39,6 +43,7 @@ type Destination struct {
 type Notification struct {
 	Name    string
 	Content Content
+	Slack   *slackmsg.Message
 	Data    map[string]any
 	TraceID string
 	// IdempotencyKey is optional. When dispatcher idempotency is enabled,
@@ -70,6 +75,19 @@ type EmailProvider interface {
 type SlackProvider interface {
 	SendToUser(ctx context.Context, userID string, message string) error
 	SendToChannel(ctx context.Context, channelID string, message string) error
+}
+
+// SlackRichProvider is an optional capability for Slack providers that can send
+// structured Slack payloads, including attachments.
+type SlackRichProvider interface {
+	SendToUserMessage(ctx context.Context, userID string, message slackmsg.Message) error
+	SendToChannelMessage(ctx context.Context, channelID string, message slackmsg.Message) error
+}
+
+// SlackReactionProvider is an optional capability for Slack providers that can
+// add emoji reactions to existing messages.
+type SlackReactionProvider interface {
+	AddReaction(ctx context.Context, channelID, messageTS, emoji string) error
 }
 
 // SlackUserLookupProvider is an optional capability for Slack providers that can

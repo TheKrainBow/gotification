@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/TheKrainBow/gotification/slackmsg"
 )
 
 // SendMail sends one plain-text email notification using context.Background().
@@ -40,6 +42,43 @@ func (d *Dispatcher) SendSlackChannelMessageWithCtx(ctx context.Context, workspa
 		Content: Content{
 			Text: content,
 		},
+	}
+	dest := Destination{Channel: ChannelSlack, Kind: DestinationSlackChannel, ID: channelID, Provider: workspace}
+	return d.Send(ctx, n, []Destination{dest})
+}
+
+// SendSlackChannelRichMessage sends one structured Slack message to a channel ID
+// on one workspace using context.Background().
+func (d *Dispatcher) SendSlackChannelRichMessage(workspace, channelID string, message slackmsg.Message) error {
+	return d.SendSlackChannelRichMessageWithCtx(context.Background(), workspace, channelID, message)
+}
+
+// SendSlackChannelRichMessageWithCtx sends one structured Slack message to a
+// channel ID on one workspace.
+func (d *Dispatcher) SendSlackChannelRichMessageWithCtx(ctx context.Context, workspace, channelID string, message slackmsg.Message) error {
+	n := Notification{
+		Name:    "slack-channel",
+		Content: Content{Text: message.Text},
+		Slack:   &message,
+	}
+	dest := Destination{Channel: ChannelSlack, Kind: DestinationSlackChannel, ID: channelID, Provider: workspace}
+	return d.Send(ctx, n, []Destination{dest})
+}
+
+// SendSlackThreadReply sends one structured Slack reply in an existing thread
+// using context.Background().
+func (d *Dispatcher) SendSlackThreadReply(workspace, channelID, threadTS string, message slackmsg.Message) error {
+	return d.SendSlackThreadReplyWithCtx(context.Background(), workspace, channelID, threadTS, message)
+}
+
+// SendSlackThreadReplyWithCtx sends one structured Slack reply in an existing
+// thread.
+func (d *Dispatcher) SendSlackThreadReplyWithCtx(ctx context.Context, workspace, channelID, threadTS string, message slackmsg.Message) error {
+	message.ThreadTS = strings.TrimSpace(threadTS)
+	n := Notification{
+		Name:    "slack-thread-reply",
+		Content: Content{Text: message.Text},
+		Slack:   &message,
 	}
 	dest := Destination{Channel: ChannelSlack, Kind: DestinationSlackChannel, ID: channelID, Provider: workspace}
 	return d.Send(ctx, n, []Destination{dest})
@@ -97,6 +136,39 @@ func (d *Dispatcher) SendSlackUserMPWithCtx(ctx context.Context, workspace, user
 		},
 	}
 	return d.Send(ctx, n, dests)
+}
+
+// AddSlackReaction adds one emoji reaction to an existing Slack message using
+// context.Background().
+func (d *Dispatcher) AddSlackReaction(workspace, channelID, messageTS, emoji string) error {
+	return d.AddSlackReactionWithCtx(context.Background(), workspace, channelID, messageTS, emoji)
+}
+
+// AddSlackReactionWithCtx adds one emoji reaction to an existing Slack message.
+func (d *Dispatcher) AddSlackReactionWithCtx(ctx context.Context, workspace, channelID, messageTS, emoji string) error {
+	providerKey, provider, err := d.slackProviderFor(workspace)
+	if err != nil {
+		return &NotifyError{Kind: ErrInvalidInput, Channel: ChannelSlack, Provider: workspace, Cause: err}
+	}
+
+	reactionProvider, ok := provider.(SlackReactionProvider)
+	if !ok {
+		return &NotifyError{Kind: ErrInvalidInput, Channel: ChannelSlack, Provider: providerKey, Cause: fmt.Errorf("slack provider %q does not support reactions", providerKey)}
+	}
+
+	dest := Destination{Channel: ChannelSlack, Kind: DestinationSlackChannel, ID: channelID, Provider: providerKey}
+	callErr := reactionProvider.AddReaction(ctx, channelID, messageTS, normalizeSlackEmoji(emoji))
+	if wrapped := wrapProviderError(callErr, ChannelSlack, providerKey, dest); wrapped != nil {
+		return wrapped
+	}
+	return nil
+}
+
+func normalizeSlackEmoji(emoji string) string {
+	emoji = strings.TrimSpace(emoji)
+	emoji = strings.TrimPrefix(emoji, ":")
+	emoji = strings.TrimSuffix(emoji, ":")
+	return strings.TrimSpace(emoji)
 }
 
 // SendTelegramMessage sends one message to a Telegram chat using

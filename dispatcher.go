@@ -8,6 +8,7 @@ import (
 
 	"github.com/TheKrainBow/gotification/internal/notifyerr"
 	"github.com/TheKrainBow/gotification/internal/validate"
+	"github.com/TheKrainBow/gotification/slackmsg"
 )
 
 // Send dispatches one notification to every destination.
@@ -78,11 +79,24 @@ func (d *Dispatcher) sendOne(ctx context.Context, n Notification, dest Destinati
 			return nil
 		}
 		var callErr error
+		message := slackMessageFromNotification(n)
 		switch dest.Kind {
 		case DestinationSlackUser:
-			callErr = provider.SendToUser(ctx, dest.ID, n.Content.Text)
+			if richProvider, ok := provider.(SlackRichProvider); ok {
+				callErr = richProvider.SendToUserMessage(ctx, dest.ID, message)
+			} else if len(message.Attachments) > 0 {
+				callErr = &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack provider does not support attachments")}
+			} else {
+				callErr = provider.SendToUser(ctx, dest.ID, message.Text)
+			}
 		case DestinationSlackChannel:
-			callErr = provider.SendToChannel(ctx, dest.ID, n.Content.Text)
+			if richProvider, ok := provider.(SlackRichProvider); ok {
+				callErr = richProvider.SendToChannelMessage(ctx, dest.ID, message)
+			} else if len(message.Attachments) > 0 {
+				callErr = &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack provider does not support attachments")}
+			} else {
+				callErr = provider.SendToChannel(ctx, dest.ID, message.Text)
+			}
 		default:
 			callErr = &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: fmt.Errorf("unsupported slack destination kind %q", dest.Kind)}
 		}
@@ -156,10 +170,29 @@ func (d *Dispatcher) sendOne(ctx context.Context, n Notification, dest Destinati
 }
 
 func validateNotification(n Notification) error {
-	if strings.TrimSpace(n.Content.Text) == "" && strings.TrimSpace(n.Content.HTML) == "" {
+	if strings.TrimSpace(n.Content.Text) == "" && strings.TrimSpace(n.Content.HTML) == "" && !hasSlackMessageContent(n.Slack) {
 		return &NotifyError{Kind: ErrInvalidInput, Cause: errors.New("content.text or content.html is required")}
 	}
 	return nil
+}
+
+func slackMessageFromNotification(n Notification) slackmsg.Message {
+	if n.Slack == nil {
+		return slackmsg.Message{Text: n.Content.Text}
+	}
+
+	message := *n.Slack
+	if strings.TrimSpace(message.Text) == "" {
+		message.Text = n.Content.Text
+	}
+	return message
+}
+
+func hasSlackMessageContent(message *slackmsg.Message) bool {
+	if message == nil {
+		return false
+	}
+	return strings.TrimSpace(message.Text) != "" || len(message.Attachments) > 0
 }
 
 func validateDestination(d Destination) error {

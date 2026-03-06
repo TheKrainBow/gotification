@@ -10,11 +10,21 @@ import (
 	"time"
 
 	"github.com/TheKrainBow/gotification"
+	"github.com/TheKrainBow/gotification/slackmsg"
 )
 
 type fakeSlackProvider struct {
-	users    []string
-	channels []string
+	users         []string
+	channels      []string
+	userMessages  []slackmsg.Message
+	channelRiches []slackmsg.Message
+	reactions     []fakeSlackReaction
+}
+
+type fakeSlackReaction struct {
+	channelID string
+	messageTS string
+	emoji     string
 }
 
 type fakeDiscordProvider struct {
@@ -83,6 +93,38 @@ func (f *fakeSlackProvider) SendToUser(_ context.Context, userID string, _ strin
 }
 
 func (f *fakeSlackProvider) SendToChannel(_ context.Context, channelID string, _ string) error {
+	f.channels = append(f.channels, channelID)
+	return nil
+}
+
+func (f *fakeSlackProvider) SendToUserMessage(_ context.Context, userID string, message slackmsg.Message) error {
+	f.users = append(f.users, userID)
+	f.userMessages = append(f.userMessages, message)
+	return nil
+}
+
+func (f *fakeSlackProvider) SendToChannelMessage(_ context.Context, channelID string, message slackmsg.Message) error {
+	f.channels = append(f.channels, channelID)
+	f.channelRiches = append(f.channelRiches, message)
+	return nil
+}
+
+func (f *fakeSlackProvider) AddReaction(_ context.Context, channelID, messageTS, emoji string) error {
+	f.reactions = append(f.reactions, fakeSlackReaction{channelID: channelID, messageTS: messageTS, emoji: emoji})
+	return nil
+}
+
+type legacyFakeSlackProvider struct {
+	users    []string
+	channels []string
+}
+
+func (f *legacyFakeSlackProvider) SendToUser(_ context.Context, userID string, _ string) error {
+	f.users = append(f.users, userID)
+	return nil
+}
+
+func (f *legacyFakeSlackProvider) SendToChannel(_ context.Context, channelID string, _ string) error {
 	f.channels = append(f.channels, channelID)
 	return nil
 }
@@ -236,6 +278,54 @@ func TestConvenienceSendSlackChannelMessage(t *testing.T) {
 	}
 }
 
+func TestConvenienceSendSlackChannelRichMessage(t *testing.T) {
+	slackProvider := &fakeSlackProvider{}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	message := slackmsg.Message{
+		Text: "USB receiver unplugged",
+		Attachments: []slackmsg.Attachment{{
+			Color: "#7B2CBF",
+			Fields: []slackmsg.AttachmentField{
+				{Title: "Host", Value: "maagosti", Short: true},
+			},
+		}},
+	}
+	if err := d.SendSlackChannelRichMessage("workspace-a", "C123", message); err != nil {
+		t.Fatalf("SendSlackChannelRichMessage failed: %v", err)
+	}
+	if len(slackProvider.channelRiches) != 1 {
+		t.Fatalf("expected one rich message, got %#v", slackProvider.channelRiches)
+	}
+	if slackProvider.channelRiches[0].Attachments[0].Color != "#7B2CBF" {
+		t.Fatalf("unexpected rich message payload: %#v", slackProvider.channelRiches[0])
+	}
+}
+
+func TestConvenienceSendSlackThreadReply(t *testing.T) {
+	slackProvider := &fakeSlackProvider{}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	err = d.SendSlackThreadReply("workspace-a", "C123", "1741256640.123456", slackmsg.Message{
+		Text: "thread reply",
+	})
+	if err != nil {
+		t.Fatalf("SendSlackThreadReply failed: %v", err)
+	}
+	if len(slackProvider.channelRiches) != 1 {
+		t.Fatalf("expected one rich message, got %#v", slackProvider.channelRiches)
+	}
+	if slackProvider.channelRiches[0].ThreadTS != "1741256640.123456" {
+		t.Fatalf("unexpected thread ts: %#v", slackProvider.channelRiches[0])
+	}
+}
+
 func TestConvenienceSendSlackUserMP(t *testing.T) {
 	lookup := &fakeSlackLookupProvider{ids: []string{"U1", "U2"}}
 	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", lookup))
@@ -275,6 +365,68 @@ func TestIncrementalSlackProviderManagement(t *testing.T) {
 	err = d.SendSlackChannelMessage("workspace-a", "C43", "hello")
 	if err == nil {
 		t.Fatal("expected error after removing slack provider")
+	}
+}
+
+func TestSlackAttachmentsRequireRichProvider(t *testing.T) {
+	slackProvider := &legacyFakeSlackProvider{}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	err = d.Send(context.Background(), gotification.Notification{
+		Slack: &slackmsg.Message{
+			Text: "hello",
+			Attachments: []slackmsg.Attachment{{
+				Color: "#ff0000",
+			}},
+		},
+	}, []gotification.Destination{{
+		Channel:  gotification.ChannelSlack,
+		Kind:     gotification.DestinationSlackChannel,
+		ID:       "C123",
+		Provider: "workspace-a",
+	}})
+	if err == nil {
+		t.Fatal("expected error for legacy slack provider with attachments")
+	}
+	if !strings.Contains(err.Error(), "does not support attachments") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddSlackReaction(t *testing.T) {
+	slackProvider := &fakeSlackProvider{}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	if err := d.AddSlackReaction("workspace-a", "C123", "1741256640.123456", ":rotating_light:"); err != nil {
+		t.Fatalf("AddSlackReaction failed: %v", err)
+	}
+	if len(slackProvider.reactions) != 1 {
+		t.Fatalf("unexpected reactions: %#v", slackProvider.reactions)
+	}
+	if slackProvider.reactions[0].emoji != "rotating_light" {
+		t.Fatalf("unexpected emoji normalization: %#v", slackProvider.reactions[0])
+	}
+}
+
+func TestAddSlackReactionRequiresCapableProvider(t *testing.T) {
+	slackProvider := &legacyFakeSlackProvider{}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	err = d.AddSlackReaction("workspace-a", "C123", "1741256640.123456", "eyes")
+	if err == nil {
+		t.Fatal("expected error for legacy slack provider without reactions support")
+	}
+	if !strings.Contains(err.Error(), "does not support reactions") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

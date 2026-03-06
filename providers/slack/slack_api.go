@@ -14,6 +14,7 @@ import (
 
 	"github.com/TheKrainBow/gotification/internal/httpx"
 	"github.com/TheKrainBow/gotification/internal/notifyerr"
+	"github.com/TheKrainBow/gotification/slackmsg"
 )
 
 type apiHTTPClient interface {
@@ -66,9 +67,41 @@ func (p *Provider) openConversation(ctx context.Context, userID string) (string,
 	return resp.Channel.ID, nil
 }
 
-func (p *Provider) postMessage(ctx context.Context, channelID, message string) error {
+func (p *Provider) postMessage(ctx context.Context, channelID string, message slackmsg.Message) error {
 	var resp postMessageResponse
-	err := p.call(ctx, "/chat.postMessage", map[string]string{"channel": channelID, "text": message}, &resp)
+	err := p.call(ctx, "/chat.postMessage", struct {
+		Channel        string                `json:"channel"`
+		Text           string                `json:"text,omitempty"`
+		ThreadTS       string                `json:"thread_ts,omitempty"`
+		ReplyBroadcast bool                  `json:"reply_broadcast,omitempty"`
+		Attachments    []slackmsg.Attachment `json:"attachments,omitempty"`
+	}{
+		Channel:        channelID,
+		Text:           message.Text,
+		ThreadTS:       message.ThreadTS,
+		ReplyBroadcast: message.ReplyBroadcast,
+		Attachments:    message.Attachments,
+	}, &resp)
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		return classifySlackAPIError(http.StatusOK, resp.Error, 0)
+	}
+	return nil
+}
+
+func (p *Provider) addReaction(ctx context.Context, channelID, messageTS, emoji string) error {
+	var resp postMessageResponse
+	err := p.call(ctx, "/reactions.add", struct {
+		Channel   string `json:"channel"`
+		Timestamp string `json:"timestamp"`
+		Name      string `json:"name"`
+	}{
+		Channel:   channelID,
+		Timestamp: messageTS,
+		Name:      emoji,
+	}, &resp)
 	if err != nil {
 		return err
 	}

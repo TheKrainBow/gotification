@@ -51,6 +51,16 @@ func main() {
     _ = d.AddWebhookProviderFromConfig("default", webhook.Config{})
 
     _ = d.SendSlackChannelMessage("workspace-a", "C123", "Release 1.2.3 completed.")
+    _ = d.SendSlackChannelRichMessage("workspace-a", "C123", slackmsg.Message{
+        Text: "USB receiver unplugged",
+        Attachments: []slackmsg.Attachment{{
+            Color: "#7B2CBF",
+            Fields: []slackmsg.AttachmentField{
+                {Title: "Host", Value: "maagosti", Short: true},
+                {Title: "User", Value: "alice", Short: true},
+            },
+        }},
+    })
     _ = d.SendSlackUserMP("workspace-a", "heinz", "Release 1.2.3 completed.")
     _ = d.SendMail("default", "ops@example.com", "Deploy done", "Release 1.2.3 completed.")
     _ = d.SendTelegramMessage("default", "123456789", "Release 1.2.3 completed.")
@@ -61,6 +71,53 @@ func main() {
         log.Printf("retryable: %v", gotification.Retryable(err))
     }
 }
+```
+
+Add the import when using structured Slack payloads:
+
+```go
+import "github.com/TheKrainBow/gotification/slackmsg"
+```
+
+## Slack Attachments
+
+Slack messages can now carry legacy `attachments` through `slackmsg.Message`.
+
+```go
+n := gotification.Notification{
+    Slack: &slackmsg.Message{
+        Text: "USB receiver unplugged",
+        Attachments: []slackmsg.Attachment{{
+            Color: "#7B2CBF",
+            Fields: []slackmsg.AttachmentField{
+                {Title: "Host", Value: "c2r10p3.42nice.fr", Short: true},
+                {Title: "Users", Value: "cngogang", Short: true},
+            },
+        }},
+    },
+}
+
+err := d.Send(ctx, n, []gotification.Destination{{
+    Channel:  gotification.ChannelSlack,
+    Kind:     gotification.DestinationSlackChannel,
+    ID:       "C123",
+    Provider: "workspace-a",
+}})
+```
+
+Thread replies use the same payload:
+
+```go
+err := d.SendSlackThreadReply("workspace-a", "C123", "1741256640.123456", slackmsg.Message{
+    Text:           "Acknowledged",
+    ReplyBroadcast: true,
+})
+```
+
+Emoji reactions are sent separately:
+
+```go
+err := d.AddSlackReaction("workspace-a", "C123", "1741256640.123456", ":eyes:")
 ```
 
 ## Destination Model

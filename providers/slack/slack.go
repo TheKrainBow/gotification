@@ -8,6 +8,7 @@ import (
 
 	"github.com/TheKrainBow/gotification/internal/httpx"
 	"github.com/TheKrainBow/gotification/internal/notifyerr"
+	"github.com/TheKrainBow/gotification/slackmsg"
 )
 
 // Config configures Slack Web API access.
@@ -42,10 +43,15 @@ func NewProvider(cfg Config) (*Provider, error) {
 
 // SendToChannel posts a message to an existing channel ID.
 func (p *Provider) SendToChannel(ctx context.Context, channelID string, message string) error {
+	return p.SendToChannelMessage(ctx, channelID, slackmsg.Message{Text: message})
+}
+
+// SendToChannelMessage posts a structured message to an existing channel ID.
+func (p *Provider) SendToChannelMessage(ctx context.Context, channelID string, message slackmsg.Message) error {
 	if strings.TrimSpace(channelID) == "" {
 		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack channel id is required")}
 	}
-	if strings.TrimSpace(message) == "" {
+	if !hasMessageContent(message) {
 		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack message cannot be empty")}
 	}
 	return p.postMessage(ctx, channelID, message)
@@ -53,10 +59,15 @@ func (p *Provider) SendToChannel(ctx context.Context, channelID string, message 
 
 // SendToUser opens a DM channel then sends a message.
 func (p *Provider) SendToUser(ctx context.Context, userID string, message string) error {
+	return p.SendToUserMessage(ctx, userID, slackmsg.Message{Text: message})
+}
+
+// SendToUserMessage opens a DM channel then sends a structured message.
+func (p *Provider) SendToUserMessage(ctx context.Context, userID string, message slackmsg.Message) error {
 	if strings.TrimSpace(userID) == "" {
 		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack user id is required")}
 	}
-	if strings.TrimSpace(message) == "" {
+	if !hasMessageContent(message) {
 		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack message cannot be empty")}
 	}
 	channelID, err := p.openConversation(ctx, userID)
@@ -64,6 +75,21 @@ func (p *Provider) SendToUser(ctx context.Context, userID string, message string
 		return err
 	}
 	return p.postMessage(ctx, channelID, message)
+}
+
+// AddReaction adds one emoji reaction to an existing Slack message.
+func (p *Provider) AddReaction(ctx context.Context, channelID, messageTS, emoji string) error {
+	if strings.TrimSpace(channelID) == "" {
+		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack channel id is required")}
+	}
+	if strings.TrimSpace(messageTS) == "" {
+		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack message timestamp is required")}
+	}
+	emoji = normalizeEmojiName(emoji)
+	if emoji == "" {
+		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack emoji is required")}
+	}
+	return p.addReaction(ctx, channelID, messageTS, emoji)
 }
 
 // FindUsersByName resolves Slack user IDs matching query against username,
@@ -74,4 +100,15 @@ func (p *Provider) FindUsersByName(ctx context.Context, query string) ([]string,
 		return nil, &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack user query is required")}
 	}
 	return p.findUsersByName(ctx, query)
+}
+
+func hasMessageContent(message slackmsg.Message) bool {
+	return strings.TrimSpace(message.Text) != "" || len(message.Attachments) > 0
+}
+
+func normalizeEmojiName(emoji string) string {
+	emoji = strings.TrimSpace(emoji)
+	emoji = strings.TrimPrefix(emoji, ":")
+	emoji = strings.TrimSuffix(emoji, ":")
+	return strings.TrimSpace(emoji)
 }
