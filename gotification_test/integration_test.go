@@ -2,6 +2,7 @@ package gotification_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -18,6 +19,8 @@ type fakeSlackProvider struct {
 	channels      []string
 	userMessages  []slackmsg.Message
 	channelRiches []slackmsg.Message
+	userRaws      []json.RawMessage
+	channelRaws   []json.RawMessage
 	reactions     []fakeSlackReaction
 }
 
@@ -106,6 +109,18 @@ func (f *fakeSlackProvider) SendToUserMessage(_ context.Context, userID string, 
 func (f *fakeSlackProvider) SendToChannelMessage(_ context.Context, channelID string, message slackmsg.Message) error {
 	f.channels = append(f.channels, channelID)
 	f.channelRiches = append(f.channelRiches, message)
+	return nil
+}
+
+func (f *fakeSlackProvider) SendToUserRawMessage(_ context.Context, userID string, payload json.RawMessage) error {
+	f.users = append(f.users, userID)
+	f.userRaws = append(f.userRaws, append(json.RawMessage(nil), payload...))
+	return nil
+}
+
+func (f *fakeSlackProvider) SendToChannelRawMessage(_ context.Context, channelID string, payload json.RawMessage) error {
+	f.channels = append(f.channels, channelID)
+	f.channelRaws = append(f.channelRaws, append(json.RawMessage(nil), payload...))
 	return nil
 }
 
@@ -305,6 +320,51 @@ func TestConvenienceSendSlackChannelRichMessage(t *testing.T) {
 	}
 }
 
+func TestConvenienceSendSlackChannelRichMessageWithAttachmentBlocks(t *testing.T) {
+	slackProvider := &fakeSlackProvider{}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	message := slackmsg.Message{
+		Text: "📁 Un dossier est en attente de validation",
+		Attachments: []slackmsg.Attachment{{
+			Color: "#ffcc00",
+			Blocks: []slackmsg.Block{
+				{
+					"type": "header",
+					"text": map[string]any{
+						"type": "plain_text",
+						"text": "📁 Un dossier est en attente de validation",
+					},
+				},
+				{
+					"type": "section",
+					"text": map[string]any{
+						"type": "mrkdwn",
+						"text": "*maagosti*\\nmaagosti a envoyé tous ses documents pour l'année *2025-2026*.",
+					},
+					"accessory": map[string]any{
+						"type":      "image",
+						"image_url": "https://cdn.intra.42.fr/users/medium_maagosti.jpg",
+						"alt_text":  "avatar",
+					},
+				},
+			},
+		}},
+	}
+	if err := d.SendSlackChannelRichMessage("workspace-a", "C123", message); err != nil {
+		t.Fatalf("SendSlackChannelRichMessage failed: %v", err)
+	}
+	if len(slackProvider.channelRiches) != 1 {
+		t.Fatalf("expected one rich message, got %#v", slackProvider.channelRiches)
+	}
+	if got := slackProvider.channelRiches[0].Attachments[0].Blocks[0]["type"]; got != "header" {
+		t.Fatalf("unexpected attachment blocks payload: %#v", slackProvider.channelRiches[0])
+	}
+}
+
 func TestConvenienceSendSlackThreadReply(t *testing.T) {
 	slackProvider := &fakeSlackProvider{}
 	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
@@ -326,6 +386,25 @@ func TestConvenienceSendSlackThreadReply(t *testing.T) {
 	}
 }
 
+func TestConvenienceSendSlackChannelRawMessage(t *testing.T) {
+	slackProvider := &fakeSlackProvider{}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	payload := json.RawMessage(`{"text":"📁 Un dossier est en attente de validation","attachments":[{"color":"#ffcc00"}]}`)
+	if err := d.SendSlackChannelRawMessage("workspace-a", "C123", payload); err != nil {
+		t.Fatalf("SendSlackChannelRawMessage failed: %v", err)
+	}
+	if len(slackProvider.channelRaws) != 1 {
+		t.Fatalf("expected one raw message, got %#v", slackProvider.channelRaws)
+	}
+	if string(slackProvider.channelRaws[0]) != string(payload) {
+		t.Fatalf("unexpected raw payload: %s", string(slackProvider.channelRaws[0]))
+	}
+}
+
 func TestConvenienceSendSlackUserMP(t *testing.T) {
 	lookup := &fakeSlackLookupProvider{ids: []string{"U1", "U2"}}
 	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", lookup))
@@ -335,6 +414,25 @@ func TestConvenienceSendSlackUserMP(t *testing.T) {
 
 	if err := d.SendSlackUserMP("workspace-a", "heinz", "hello"); err != nil {
 		t.Fatalf("SendSlackUserMP failed: %v", err)
+	}
+	if len(lookup.users) != 2 {
+		t.Fatalf("unexpected user IDs: %#v", lookup.users)
+	}
+}
+
+func TestConvenienceSendSlackUserMPRaw(t *testing.T) {
+	lookup := &fakeSlackLookupProvider{ids: []string{"U1", "U2"}}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", lookup))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	payload := json.RawMessage(`{"text":"hello","blocks":[{"type":"divider"}]}`)
+	if err := d.SendSlackUserMPRaw("workspace-a", "heinz", payload); err != nil {
+		t.Fatalf("SendSlackUserMPRaw failed: %v", err)
+	}
+	if len(lookup.userRaws) != 2 {
+		t.Fatalf("unexpected raw payload count: %#v", lookup.userRaws)
 	}
 	if len(lookup.users) != 2 {
 		t.Fatalf("unexpected user IDs: %#v", lookup.users)
@@ -391,7 +489,35 @@ func TestSlackAttachmentsRequireRichProvider(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for legacy slack provider with attachments")
 	}
-	if !strings.Contains(err.Error(), "does not support attachments") {
+	if !strings.Contains(err.Error(), "does not support structured slack messages") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSlackBlocksRequireRichProvider(t *testing.T) {
+	slackProvider := &legacyFakeSlackProvider{}
+	d, err := gotification.NewDispatcher(gotification.WithSlackProvider("workspace-a", slackProvider))
+	if err != nil {
+		t.Fatalf("new dispatcher: %v", err)
+	}
+
+	err = d.Send(context.Background(), gotification.Notification{
+		Slack: &slackmsg.Message{
+			Text: "hello",
+			Blocks: []slackmsg.Block{
+				{"type": "divider"},
+			},
+		},
+	}, []gotification.Destination{{
+		Channel:  gotification.ChannelSlack,
+		Kind:     gotification.DestinationSlackChannel,
+		ID:       "C123",
+		Provider: "workspace-a",
+	}})
+	if err == nil {
+		t.Fatal("expected error for legacy slack provider with blocks")
+	}
+	if !strings.Contains(err.Error(), "does not support structured slack messages") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

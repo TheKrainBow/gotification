@@ -79,9 +79,10 @@ Add the import when using structured Slack payloads:
 import "github.com/TheKrainBow/gotification/slackmsg"
 ```
 
-## Slack Attachments
+## Structured Slack Messages
 
-Slack messages can now carry legacy `attachments` through `slackmsg.Message`.
+Slack messages can carry top-level `blocks` and attachment-level `blocks`
+through `slackmsg.Message`.
 
 ```go
 n := gotification.Notification{
@@ -103,6 +104,36 @@ err := d.Send(ctx, n, []gotification.Destination{{
     ID:       "C123",
     Provider: "workspace-a",
 }})
+
+err = d.SendSlackChannelRichMessage("workspace-a", "C123", slackmsg.Message{
+    Text: "📁 Un dossier est en attente de validation",
+    Attachments: []slackmsg.Attachment{{
+        Color: "#ffcc00",
+        Blocks: []slackmsg.Block{
+            {
+                "type": "header",
+                "text": map[string]any{
+                    "type": "plain_text",
+                    "text": "📁 Un dossier est en attente de validation",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": []any{
+                    map[string]any{
+                        "type": "button",
+                        "text": map[string]any{
+                            "type": "plain_text",
+                            "text": "Voir le dossier",
+                        },
+                        "url":   "https://adm.example.com/admin/dossiers/42",
+                        "style": "primary",
+                    },
+                },
+            },
+        },
+    }},
+})
 ```
 
 Thread replies use the same payload:

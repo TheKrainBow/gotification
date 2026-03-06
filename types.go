@@ -2,6 +2,7 @@ package gotification
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/TheKrainBow/gotification/slackmsg"
 )
@@ -82,6 +83,13 @@ type SlackProvider interface {
 type SlackRichProvider interface {
 	SendToUserMessage(ctx context.Context, userID string, message slackmsg.Message) error
 	SendToChannelMessage(ctx context.Context, channelID string, message slackmsg.Message) error
+}
+
+// SlackRawProvider is an optional capability for Slack providers that can send
+// raw chat.postMessage payloads after the library injects the final channel.
+type SlackRawProvider interface {
+	SendToUserRawMessage(ctx context.Context, userID string, payload json.RawMessage) error
+	SendToChannelRawMessage(ctx context.Context, channelID string, payload json.RawMessage) error
 }
 
 // SlackReactionProvider is an optional capability for Slack providers that can

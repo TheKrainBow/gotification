@@ -2,6 +2,7 @@ package gotification
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -84,6 +85,33 @@ func (d *Dispatcher) SendSlackThreadReplyWithCtx(ctx context.Context, workspace,
 	return d.Send(ctx, n, []Destination{dest})
 }
 
+// SendSlackChannelRawMessage sends one raw Slack chat.postMessage payload to a
+// channel ID using context.Background(). The library injects the final channel.
+func (d *Dispatcher) SendSlackChannelRawMessage(workspace, channelID string, payload json.RawMessage) error {
+	return d.SendSlackChannelRawMessageWithCtx(context.Background(), workspace, channelID, payload)
+}
+
+// SendSlackChannelRawMessageWithCtx sends one raw Slack chat.postMessage
+// payload to a channel ID. The library injects the final channel.
+func (d *Dispatcher) SendSlackChannelRawMessageWithCtx(ctx context.Context, workspace, channelID string, payload json.RawMessage) error {
+	providerKey, provider, err := d.slackProviderFor(workspace)
+	if err != nil {
+		return &NotifyError{Kind: ErrInvalidInput, Channel: ChannelSlack, Provider: workspace, Cause: err}
+	}
+
+	rawProvider, ok := provider.(SlackRawProvider)
+	if !ok {
+		return &NotifyError{Kind: ErrInvalidInput, Channel: ChannelSlack, Provider: providerKey, Cause: fmt.Errorf("slack provider %q does not support raw messages", providerKey)}
+	}
+
+	dest := Destination{Channel: ChannelSlack, Kind: DestinationSlackChannel, ID: channelID, Provider: providerKey}
+	callErr := rawProvider.SendToChannelRawMessage(ctx, channelID, payload)
+	if wrapped := wrapProviderError(callErr, ChannelSlack, providerKey, dest); wrapped != nil {
+		return wrapped
+	}
+	return nil
+}
+
 // SendSlackUserMP resolves Slack users by name and sends a DM message to every
 // match using context.Background().
 // If workspace is empty, the default Slack provider is used.
@@ -136,6 +164,59 @@ func (d *Dispatcher) SendSlackUserMPWithCtx(ctx context.Context, workspace, user
 		},
 	}
 	return d.Send(ctx, n, dests)
+}
+
+// SendSlackUserMPRaw resolves Slack users by name and sends one raw Slack
+// chat.postMessage payload as a DM to every match using context.Background().
+func (d *Dispatcher) SendSlackUserMPRaw(workspace, username string, payload json.RawMessage) error {
+	return d.SendSlackUserMPRawWithCtx(context.Background(), workspace, username, payload)
+}
+
+// SendSlackUserMPRawWithCtx resolves Slack users by name and sends one raw
+// Slack chat.postMessage payload as a DM to every match.
+func (d *Dispatcher) SendSlackUserMPRawWithCtx(ctx context.Context, workspace, username string, payload json.RawMessage) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return &NotifyError{Kind: ErrInvalidInput, Channel: ChannelSlack, Provider: workspace, Cause: fmt.Errorf("username is required")}
+	}
+
+	providerKey, provider, err := d.slackProviderFor(workspace)
+	if err != nil {
+		return &NotifyError{Kind: ErrInvalidInput, Channel: ChannelSlack, Provider: workspace, Cause: err}
+	}
+
+	rawProvider, ok := provider.(SlackRawProvider)
+	if !ok {
+		return &NotifyError{Kind: ErrInvalidInput, Channel: ChannelSlack, Provider: providerKey, Cause: fmt.Errorf("slack provider %q does not support raw messages", providerKey)}
+	}
+
+	ids, err := d.FindSlackUsersByName(ctx, workspace, username)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return &NotifyError{
+			Kind:     ErrNotFound,
+			Channel:  ChannelSlack,
+			Provider: providerKey,
+			Dest: Destination{
+				Channel:  ChannelSlack,
+				Kind:     DestinationSlackUser,
+				ID:       username,
+				Provider: providerKey,
+			},
+			Cause: fmt.Errorf("no slack users matched %q", username),
+		}
+	}
+
+	for _, id := range ids {
+		dest := Destination{Channel: ChannelSlack, Kind: DestinationSlackUser, ID: id, Provider: providerKey}
+		callErr := rawProvider.SendToUserRawMessage(ctx, id, payload)
+		if wrapped := wrapProviderError(callErr, ChannelSlack, providerKey, dest); wrapped != nil {
+			return wrapped
+		}
+	}
+	return nil
 }
 
 // AddSlackReaction adds one emoji reaction to an existing Slack message using

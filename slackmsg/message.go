@@ -1,14 +1,18 @@
 package slackmsg
 
+// Block is one arbitrary Slack Block Kit JSON object.
+type Block map[string]any
+
 // Message is a Slack chat.postMessage payload subset supported by gotification.
 type Message struct {
 	Text           string       `json:"text,omitempty"`
+	Blocks         []Block      `json:"blocks,omitempty"`
 	ThreadTS       string       `json:"thread_ts,omitempty"`
 	ReplyBroadcast bool         `json:"reply_broadcast,omitempty"`
 	Attachments    []Attachment `json:"attachments,omitempty"`
 }
 
-// Attachment describes one Slack legacy attachment.
+// Attachment describes one Slack attachment payload.
 type Attachment struct {
 	Color      string            `json:"color,omitempty"`
 	Pretext    string            `json:"pretext,omitempty"`
@@ -23,6 +27,7 @@ type Attachment struct {
 	FooterIcon string            `json:"footer_icon,omitempty"`
 	Timestamp  int64             `json:"ts,omitempty"`
 	MarkdownIn []string          `json:"mrkdwn_in,omitempty"`
+	Blocks     []Block           `json:"blocks,omitempty"`
 }
 
 // AttachmentField is one name/value pair rendered inside a Slack attachment.

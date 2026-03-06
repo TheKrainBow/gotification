@@ -1,0 +1,53 @@
+{
+  "channel": "#admin-dossiers",
+  "text": "📁 Un dossier est en attente de validation",
+  "attachments": [
+    {
+      "color": "#ffcc00",
+      "blocks": [
+        {
+          "type": "header",
+          "text": {
+            "type": "plain_text",
+            "text": "📁 Un dossier est en attente de validation"
+          }
+        },
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*maagosti*\nmaagosti a envoyé tous ses documents pour l'année *2025-2026*."
+          },
+          "accessory": {
+            "type": "image",
+            "image_url": "https://cdn.intra.42.fr/users/medium_maagosti.jpg",
+            "alt_text": "avatar"
+          }
+        },
+        {
+          "type": "actions",
+          "elements": [
+            {
+              "type": "button",
+              "text": {
+                "type": "plain_text",
+                "text": "Voir le dossier"
+              },
+              "url": "https://adm.example.com/admin/dossiers/42",
+              "style": "primary"
+            }
+          ]
+        },
+        {
+          "type": "context",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "ADM • 42 Nice"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

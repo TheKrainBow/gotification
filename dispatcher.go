@@ -84,16 +84,16 @@ func (d *Dispatcher) sendOne(ctx context.Context, n Notification, dest Destinati
 		case DestinationSlackUser:
 			if richProvider, ok := provider.(SlackRichProvider); ok {
 				callErr = richProvider.SendToUserMessage(ctx, dest.ID, message)
-			} else if len(message.Attachments) > 0 {
-				callErr = &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack provider does not support attachments")}
+			} else if requiresSlackRichMessage(message) {
+				callErr = &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack provider does not support structured slack messages")}
 			} else {
 				callErr = provider.SendToUser(ctx, dest.ID, message.Text)
 			}
 		case DestinationSlackChannel:
 			if richProvider, ok := provider.(SlackRichProvider); ok {
 				callErr = richProvider.SendToChannelMessage(ctx, dest.ID, message)
-			} else if len(message.Attachments) > 0 {
-				callErr = &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack provider does not support attachments")}
+			} else if requiresSlackRichMessage(message) {
+				callErr = &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack provider does not support structured slack messages")}
 			} else {
 				callErr = provider.SendToChannel(ctx, dest.ID, message.Text)
 			}
@@ -192,7 +192,14 @@ func hasSlackMessageContent(message *slackmsg.Message) bool {
 	if message == nil {
 		return false
 	}
-	return strings.TrimSpace(message.Text) != "" || len(message.Attachments) > 0
+	return strings.TrimSpace(message.Text) != "" || requiresSlackRichMessage(*message)
+}
+
+func requiresSlackRichMessage(message slackmsg.Message) bool {
+	if len(message.Blocks) > 0 || len(message.Attachments) > 0 {
+		return true
+	}
+	return false
 }
 
 func validateDestination(d Destination) error {

@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -57,6 +58,18 @@ func (p *Provider) SendToChannelMessage(ctx context.Context, channelID string, m
 	return p.postMessage(ctx, channelID, message)
 }
 
+// SendToChannelRawMessage posts a raw chat.postMessage payload to an existing
+// channel ID after injecting the final channel server-side.
+func (p *Provider) SendToChannelRawMessage(ctx context.Context, channelID string, payload json.RawMessage) error {
+	if strings.TrimSpace(channelID) == "" {
+		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack channel id is required")}
+	}
+	if len(strings.TrimSpace(string(payload))) == 0 {
+		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack raw payload is required")}
+	}
+	return p.postRawMessage(ctx, channelID, payload)
+}
+
 // SendToUser opens a DM channel then sends a message.
 func (p *Provider) SendToUser(ctx context.Context, userID string, message string) error {
 	return p.SendToUserMessage(ctx, userID, slackmsg.Message{Text: message})
@@ -75,6 +88,22 @@ func (p *Provider) SendToUserMessage(ctx context.Context, userID string, message
 		return err
 	}
 	return p.postMessage(ctx, channelID, message)
+}
+
+// SendToUserRawMessage opens a DM channel then sends a raw chat.postMessage
+// payload after injecting the resolved channel server-side.
+func (p *Provider) SendToUserRawMessage(ctx context.Context, userID string, payload json.RawMessage) error {
+	if strings.TrimSpace(userID) == "" {
+		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack user id is required")}
+	}
+	if len(strings.TrimSpace(string(payload))) == 0 {
+		return &notifyerr.Error{Kind: notifyerr.KindInvalidInput, Cause: errors.New("slack raw payload is required")}
+	}
+	channelID, err := p.openConversation(ctx, userID)
+	if err != nil {
+		return err
+	}
+	return p.postRawMessage(ctx, channelID, payload)
 }
 
 // AddReaction adds one emoji reaction to an existing Slack message.
@@ -103,7 +132,7 @@ func (p *Provider) FindUsersByName(ctx context.Context, query string) ([]string,
 }
 
 func hasMessageContent(message slackmsg.Message) bool {
-	return strings.TrimSpace(message.Text) != "" || len(message.Attachments) > 0
+	return strings.TrimSpace(message.Text) != "" || len(message.Blocks) > 0 || hasAttachmentContent(message.Attachments)
 }
 
 func normalizeEmojiName(emoji string) string {
@@ -111,4 +140,28 @@ func normalizeEmojiName(emoji string) string {
 	emoji = strings.TrimPrefix(emoji, ":")
 	emoji = strings.TrimSuffix(emoji, ":")
 	return strings.TrimSpace(emoji)
+}
+
+func hasAttachmentContent(attachments []slackmsg.Attachment) bool {
+	for _, attachment := range attachments {
+		if len(attachment.Blocks) > 0 {
+			return true
+		}
+		if strings.TrimSpace(attachment.Color) != "" ||
+			strings.TrimSpace(attachment.Pretext) != "" ||
+			strings.TrimSpace(attachment.AuthorName) != "" ||
+			strings.TrimSpace(attachment.AuthorLink) != "" ||
+			strings.TrimSpace(attachment.AuthorIcon) != "" ||
+			strings.TrimSpace(attachment.Title) != "" ||
+			strings.TrimSpace(attachment.TitleLink) != "" ||
+			strings.TrimSpace(attachment.Text) != "" ||
+			len(attachment.Fields) > 0 ||
+			strings.TrimSpace(attachment.Footer) != "" ||
+			strings.TrimSpace(attachment.FooterIcon) != "" ||
+			attachment.Timestamp != 0 ||
+			len(attachment.MarkdownIn) > 0 {
+			return true
+		}
+	}
+	return false
 }
